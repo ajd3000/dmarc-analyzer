@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import ipaddress
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 # Tunables: RDAP can be slow; many parallel queries hit RIR rate limits → empty "—" rows.
 MAX_UNIQUE_IP_LOOKUPS = 300
 RDAP_WORKERS = 4
-RDAP_TOTAL_WAIT_SEC = 240
+RDAP_CHUNK = 24  # IPs per parallel batch (avoids hundreds of pending futures at once)
+RDAP_PER_FUTURE_SEC = 120  # max wait for each lookup result once its future completes
 RDAP_PER_IP_RETRIES = 3
 
 
@@ -61,8 +63,6 @@ def _format_rdap_line(d: dict[str, Any]) -> str:
 
 
 def _lookup_one(ip: str) -> tuple[str, str]:
-    import time
-
     from ipwhois import IPWhois
 
     for attempt in range(RDAP_PER_IP_RETRIES):
@@ -114,22 +114,23 @@ def build_ip_org_map(source_ips: list[str]) -> tuple[dict[str, str], dict[str, A
     if not ordered:
         return out, meta
 
-    futures = set()
-    with ThreadPoolExecutor(max_workers=RDAP_WORKERS) as pool:
-        for ip in ordered:
-            futures.add(pool.submit(_lookup_one, ip))
-        try:
-            for fut in as_completed(futures, timeout=RDAP_TOTAL_WAIT_SEC):
+    # Chunked parallel RDAP: `as_completed(..., timeout=T)` is **idle time since last
+    # completion**, not a total budget — with 200+ IPs it wrongly raises TimeoutError
+    # while most futures are still running. Process modest batches with no iterator
+    # timeout instead.
+    for i in range(0, len(ordered), RDAP_CHUNK):
+        chunk = ordered[i : i + RDAP_CHUNK]
+        with ThreadPoolExecutor(max_workers=min(RDAP_WORKERS, len(chunk))) as pool:
+            fut_map = {pool.submit(_lookup_one, ip): ip for ip in chunk}
+            for fut in as_completed(fut_map):
+                ip_key = fut_map[fut]
                 try:
-                    ip, label = fut.result()
+                    ip, label = fut.result(timeout=RDAP_PER_FUTURE_SEC)
                     out[ip] = label
                 except Exception:
                     meta["errors"] = True
-        except TimeoutError:
-            meta["errors"] = True
-            for f in futures:
-                if not f.done():
-                    f.cancel()
+                    out[ip_key] = "—"
+        time.sleep(0.1)
 
     meta["looked_up"] = sum(1 for ip in ordered if ip in out)
     meta["max_lookups"] = MAX_UNIQUE_IP_LOOKUPS
