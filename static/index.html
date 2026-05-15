@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DMARC aggregate scanner</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="header">
+    <h1>DMARC aggregate scanner</h1>
+    <p class="sub">Local only — runs on <code>127.0.0.1</code>. Upload ZIPs (or <code>.xml</code> / <code>.xml.gz</code>). Nothing is stored on disk.</p>
+  </header>
+
+  <section class="panel">
+    <div
+      id="dropzone"
+      class="dropzone"
+      tabindex="0"
+      aria-label="Drop DMARC zip files here"
+    >
+      <p><strong>Drop files</strong> or click to choose</p>
+      <p class="hint">Multiple ZIP / XML supported</p>
+      <input type="file" id="fileInput" multiple accept=".zip,.xml,.gz,.xml.gz" hidden />
+    </div>
+    <div class="row">
+      <label>Min count (for DKIM-only / SPF-alignment rows) <input type="number" id="minCount" value="1" min="1" /></label>
+      <label class="nowrap" title="Queries RDAP per unique public IP; needs internet; can take ~30–120s on large reports"><input type="checkbox" id="resolveIpOrg" checked /> Resolve IP org (RDAP)</label>
+      <button type="button" id="analyzeBtn" class="primary">Analyze</button>
+      <button type="button" id="clearBtn">Clear files</button>
+      <button type="button" id="downloadJsonBtn" disabled>Download JSON</button>
+    </div>
+    <ul id="fileList" class="file-list"></ul>
+  </section>
+
+  <section class="panel">
+    <h2>Show rows matching</h2>
+    <div class="filters">
+      <label><input type="checkbox" class="reason-filter" value="disposition_non_none" checked /> Disposition ≠ none (quarantine / reject)</label>
+      <label><input type="checkbox" class="reason-filter" value="dkim_spf_double_fail" checked /> DKIM fail + SPF fail</label>
+      <label><input type="checkbox" class="reason-filter" value="dkim_fail_only" /> DKIM fail only (count ≥ min)</label>
+      <label><input type="checkbox" class="reason-filter" value="spf_alignment_fail" /> SPF alignment fail (policy SPF fail + DKIM pass)</label>
+      <label class="push"><input type="checkbox" id="showAllRows" /> Show all rows (ignore reason filters)</label>
+    </div>
+  </section>
+
+  <section id="summary" class="panel summary hidden" aria-live="polite"></section>
+  <section id="errors" class="panel errors hidden"></section>
+
+  <section class="panel table-wrap">
+    <h2>Results <span id="rowCountLabel"></span></h2>
+    <div class="table-scroll">
+      <table id="resultsTable">
+        <thead>
+          <tr>
+            <th data-sort="date_begin" title="Aggregate report window from XML (UTC)">Report date (UTC)</th>
+            <th data-sort="severity">Severity</th>
+            <th data-sort="reasons">Reasons</th>
+            <th data-sort="count" class="num">Count</th>
+            <th data-sort="source_ip">Source IP</th>
+            <th data-sort="ip_org" title="RDAP-derived label (ASN / network handle); not a live nslookup">IP org (RDAP)</th>
+            <th data-sort="disposition">Disposition</th>
+            <th data-sort="policy_dkim">Pol. DKIM</th>
+            <th data-sort="policy_spf">Pol. SPF</th>
+            <th data-sort="header_from">Header From</th>
+            <th data-sort="org_name">Reporter</th>
+            <th data-sort="upload_file">Upload</th>
+            <th>Auth summary</th>
+          </tr>
+        </thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
